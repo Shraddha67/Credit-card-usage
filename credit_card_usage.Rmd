@@ -1,0 +1,299 @@
+---
+title: "Credit Card Segmentation"
+author: "Shraddha"
+date: "10/05/2020"
+output: html_document
+---
+Credit card segmentation
+
+```{r, echo=FALSE}
+knitr::opts_chunk$set(error = TRUE)
+```
+
+```{r,include=FALSE,fig.show='hide'}
+library(corrplot)
+library(dplyr)
+library(factoextra)
+library(ggplot2)
+library(tables)
+library(cluster)
+```
+
+
+```{r}
+data<-read.csv("C:/Users/Shraddha/Desktop/data.csv")
+```
+
+
+Firstly, we will check for the dimensions and missing values in the dataset.
+
+```{r}
+dim(data)
+sum(is.na(data))
+colSums(is.na(data))
+```
+
+The sample dataset summarizes the usage behavior of about 8950 active credit card holders with 19 variables. And it has total 314 missing values which is not much related to size of the sample so we can omit NA's.
+
+```{r}
+clean_data<-na.omit(data)
+sum(is.na(clean_data))
+```
+
+Now, we will find out if there are any categorical variables that may need transforming. We can see from the result that all features are numeric except for "CUST ID". Since it is a unique variable and we can’t get further information from it.
+
+```{r}
+str(clean_data)
+clean_data<-clean_data[-1]
+
+```
+  
+
+```{r}
+head(clean_data)
+View(clean_data)
+dim(clean_data)
+```
+**Advanced data preparation**  
+Key Performance Indicators(KPI's) are set of measures that shows performance of overall buisness.
+
+1. Monthly average purchase and cash advance amount   
+
+Monthly average purchase
+```{r}
+clean_data$MONTHLY_AVG_PURCHASE<-clean_data$PURCHASES/clean_data$TENURE
+```
+
+monthly cash advanced amount
+```{r}
+clean_data$MONTHLY_ADV_AMOUNT<-clean_data$CASH_ADVANCE/clean_data$TENURE
+```
+
+
+2. Purchases by type (one-off, installments)  
+
+We found out that there are 4 types of purchase behaviour in the data set. So we need to derive a categorical variable based on their behaviour.  
+1) No purchase use  
+2) Installment purchases  
+3) One-off purchases  
+4) Both (one-off and installment) purchase use  
+
+```{r}
+length(clean_data$ONEOFF_PURCHASES[clean_data$ONEOFF_PURCHASES==0])
+length(clean_data$INSTALLMENTS_PURCHASES[clean_data$INSTALLMENTS_PURCHASES==0])
+
+table(clean_data$ONEOFF_PURCHASES==0 & clean_data$INSTALLMENTS_PURCHASES==0)
+table(clean_data$ONEOFF_PURCHASES>0 & clean_data$INSTALLMENTS_PURCHASES>0)
+table(clean_data$ONEOFF_PURCHASES>0 & clean_data$INSTALLMENTS_PURCHASES==0)
+table(clean_data$ONEOFF_PURCHASES>0 & clean_data$INSTALLMENTS_PURCHASES>0)
+```
+
+3. Average amount per purchase and cash advance transaction.    
+Those are already given in the data set.
+```{r}
+head(clean_data$PURCHASES_TRX)
+head(clean_data$CASH_ADVANCE_TRX)
+```
+
+4. Limit usage (balance to clean_data limit ratio)   
+(LOWER VALUE=GOOD data SCORE)The calculation is your data card balances divided by the total clean_data card limits. A debt ratio below 30% is considered "good" by FICO and will help improve one's data score  
+
+```{r}
+clean_data$Limit_usage<-clean_data$BALANCE/clean_data$CREDIT_LIMIT
+clean_data_limit_ratio<-clean_data$Limit_usage*100
+table(clean_data_limit_ratio<30)
+```
+
+5. Payments to minimum payments ratio etc.
+```{r}
+clean_data$minpay_ratio<-clean_data$PAYMENTS/clean_data$MINIMUM_PAYMENTS
+head(clean_data$minpay_ratio)
+```
+
+**Outliers**  
+
+Using IQR method to remove outliers 
+```{r}
+summary(clean_data)
+remove_outliers<- function(a) {
+    sdv <- sd(a)
+    q1<-quantile(a,0.25)
+    q3<-quantile(a,0.75)
+    H<-1.5*IQR(a)
+    min <- min(a)
+    max <- max(a)
+    UB <- q3+H
+    LB <-q1-H 
+    outlier_flag<- max>UB | min<LB
+    return(c(outlier_flag=outlier_flag,min = min,q1=q1,q3=q3,max=max, UB=UB, LB=LB ))
+}
+
+Outliers<-t(data.frame(apply(clean_data,2,remove_outliers)))
+round(Outliers,3)
+View(Outliers)
+```
+
+Outliers treatment   
+
+```{r}
+clean_data$BALANCE[clean_data$BALANCE>5040.847]<-5040.847
+clean_data$BALANCE_FREQUENCY[clean_data$BALANCE_FREQUENCY>1.136]<-1.136
+clean_data$PURCHASES[clean_data$PURCHASES>2799.899]<-2799.899
+clean_data$MONTHLY_AVG_PURCHASE[clean_data$MONTHLY_AVG_PURCHASE>244.066 ] <- 244.066
+clean_data$ONEOFF_PURCHASES[clean_data$ONEOFF_PURCHASES>1497.750]<-1497.750
+clean_data$INSTALLMENTS_PURCHASES[clean_data$INSTALLMENTS_PURCHASES>1210.369]<-1210.369
+clean_data$CASH_ADVANCE[clean_data$CASH_ADVANCE>2830.964 ]<-2830.964 
+clean_data$MONTHLY_ADV_AMOUNT[clean_data$MONTHLY_ADV_AMOUNT>252.540] <- 252.540
+clean_data$ONEOFF_PURCHASES_FREQUENCY[clean_data$ONEOFF_PURCHASES_FREQUENCY>0.833]<-0.833
+clean_data$CASH_ADVANCE_FREQUENCY[clean_data$CASH_ADVANCE_FREQUENCY>0.625]<-0.625
+clean_data$CASH_ADVANCE_TRX[clean_data$CASH_ADVANCE_TRX>10.000]<-10.000
+clean_data$PURCHASES_TRX[clean_data$PURCHASES_TRX>43.500]<-43.500
+clean_data$CREDIT_LIMIT[clean_data$CREDIT_LIMIT>13850.000]<-13850.000
+clean_data$Limit_usage[clean_data$Limit_usage>1.743] <- 1.743
+clean_data$PAYMENTS[clean_data$PAYMENTS>4250.016 ]<-4250.016 
+clean_data$MINIMUM_PAYMENTS[clean_data$MINIMUM_PAYMENTS>1809.996 ]<-1809.996 
+clean_data$minpay_ratio[clean_data$minpay_ratio>14.219] <- 14.219
+clean_data$PRC_FULL_PAYMENT[clean_data$PRC_FULL_PAYMENT>0.417 ]<-0.417 
+clean_data$TENURE[clean_data$TENURE>12.000]<-12.000
+```
+
+
+**Identification of relationships between services**  
+
+Since all of the variables are numerics, it will easier to see their correlation by using correlation matrix.  
+
+```{r}
+
+copy_data<- data.frame(clean_data)
+tracemem(copy_data)==tracemem(clean_data)
+
+colnames(copy_data)<- c("V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12", "V13", "V14", "V15", "V16", "V17","V18","V19","V20","V21")
+
+corr<-cor(copy_data)
+corrplot(corr, method="number",number.cex = 0.6)
+View(corr)
+rm(copy_data)
+```
+
+- Most of the variables are having positive correlation rather than negative one.  
+- Some of them even strongly correlated, indicating most customers spend their purchase in one-go, the same thing goes to PURCHASES_FREQUENCY and PURCHASES_INSTALLMENTS_FREQUENCY.  
+- The PURCHASES and PURCHASES_TRX has strong correlation, indicating that the amount of purchase comes along with the transaction numbers.
+
+- TENURE seems has weak correlation with other variables, it seems TENURE did not affected by the customer’s behavior.  
+  
+  
+The most popular dimensionality reduction technique is PCA or principal component analysis, which is linear dimensionality reduction. This can be obtained by computing the top eigenvectors the data matrix.     
+
+we will standardize the data first. 
+```{r}
+scaled_data<-scale(clean_data)
+```
+  
+Method to validate the number of clusters is the elbow method.  
+
+```{r}
+data_pca<-prcomp(scaled_data)
+summary(data_pca)
+```
+  
+
+```{r}
+fviz_eig(data_pca)
+```
+  
+We see a pretty clear elbow at k = 3, indicating that 3 is the best number of clusters.
+  
+```{r}
+value<-eigen(corr)$values
+```
+**Building clusters using k means**  
+
+```{r}
+cluster_two <- kmeans(scaled_data,2)
+cluster_three <- kmeans(scaled_data,3)
+cluster_four <- kmeans(scaled_data,4)
+cluster_five <- kmeans(scaled_data,5)
+cluster_six <- kmeans(scaled_data,6)
+
+clean_data<-data.frame(clean_data)
+
+all_clusters<-cbind(clean_data,clust_3=cluster_three$cluster,clust_4=cluster_four$cluster,clust_5=cluster_five$cluster ,clust_6=cluster_six$cluster)
+```
+
+**Creating Profile**
+
+```{r}
+all_var<- c("BALANCE",
+            "BALANCE_FREQUENCY",
+            "PURCHASES",
+            "ONEOFF_PURCHASES",
+            "INSTALLMENTS_PURCHASES",
+            "CASH_ADVANCE","PURCHASES_FREQUENCY",
+            "ONEOFF_PURCHASES_FREQUENCY",
+            "PURCHASES_INSTALLMENTS_FREQUENCY",
+            "CASH_ADVANCE_FREQUENCY",
+            "CASH_ADVANCE_TRX",
+            "PURCHASES_TRX",
+            "CREDIT_LIMIT",
+            "PAYMENTS",
+            "MINIMUM_PAYMENTS",
+            "TENURE",
+            "MONTHLY_AVG_PURCHASE",
+            "MONTHLY_ADV_AMOUNT",
+            "Limit_usage",
+            "minpay_ratio")
+```
+
+
+```{r}
+lengths<-tabular(1+factor(clust_3)+factor(clust_4)+factor(clust_5)+factor(clust_6)~Heading()*length*All(clean_data[1]),data=all_clusters)
+means<-tabular(1+factor(clust_3)+factor(clust_4)+factor(clust_5)+factor(clust_6)~Heading()*mean*All(clean_data[all_var]),data=all_clusters)
+
+tab_form<-cbind(lengths,means)
+tab_form2<- as.data.frame.matrix(tab_form)
+
+rownames(tab_form2)<-c("overall","cluster3_1","cluster3_2","cluster3_3","cluster4_1","cluster4_2","cluster4_3","cluster4_4","cluster5_1","cluster5_2","cluster5_3","cluster5_4","cluster5_5","cluster6_1","cluster6_2","cluster6_3","cluster6_4","cluster6_5","cluster6_6")
+    
+colnames(tab_form2)<- c("BALANCE",
+                  "BALANCE_FREQUENCY",
+                  "PURCHASES",
+                  "ONEOFF_PURCHASES",
+                  "INSTALLMENTS_PURCHASES",
+                  "CASH_ADVANCE","PURCHASES_FREQUENCY",
+                  "ONEOFF_PURCHASES_FREQUENCY",
+                  "PURCHASES_INSTALLMENTS_FREQUENCY",
+                  "CASH_ADVANCE_FREQUENCY",
+                  "CASH_ADVANCE_TRX",
+                  "PURCHASES_TRX",
+                  "CREDIT_LIMIT",
+                  "PAYMENTS",
+                  "MINIMUM_PAYMENTS",
+                  "TENURE",
+                  "MONTHLY_AVG_PURCHASE",
+                  "MONTHLY_ADV_AMOUNT",
+                  "Limit_usage",
+                  "minpay_ratio")
+profiling<- t(tab_form2)
+```
+
+**Segmentation Analysis**  
+Segment 1:( 52% - Low usage customers)  
+  
+Insights:  All the types are below mean. Purchase frequency, credit limit, usage and pay ratio is in the normal range. But still repayment is less.    
+Stratergy:  Have to activate schemes to make them purchase more. Need to increase their credit limits so that they will purchase more. Need detailed analysis as well to increse use. 
+  
+Segment 2: ( 26% - Average usage customers)   
+  
+Insights:  High in cash use. Purchases and pay ratio is low.   
+Stratergy:  Have to increse charges on cash use. Need to provide offers on purchases like cashback, discount. repayment is very low. Risky category.  
+  
+Segment 3: (22% - High usage customers)  
+  
+Insights:  Almost all types are above mean. Cash use is less. All purchases is high. Pay ratio is good.  
+Stratergy: There is no risk increasing credit limit as repayment is good and cash use very less. Can introduce loyalty points to all. they are capable of spending more so can minimize the charges on cash use as well.  
+  
+
+
+
+
+
